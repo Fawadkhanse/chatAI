@@ -1,58 +1,175 @@
 package com.example.chatai.presentation.features.chat
 
-
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.chatai.presentation.components.CustomTextField
+import com.example.chatai.R
 import com.example.chatai.presentation.components.ChatHistory
 import com.example.chatai.presentation.components.DrawerContent
-import kotlinx.coroutines.GlobalScope
+import com.example.chatai.utils.SpeechManager
+import com.example.chatai.utils.SpeechState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+import java.util.UUID
 
 @Composable
 fun ChatScreenRoute(
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val speechManager = remember { SpeechManager(context) }
+
     var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
-    var messageText by remember { mutableStateOf("") }
     var chatHistories by remember { mutableStateOf(listOf<ChatHistory>()) }
-    var isListening by remember { mutableStateOf(false) }
+    var showPermissionDialog by remember { mutableStateOf(false) }
+
+    // Speech state
+    val speechState by speechManager.speechState.collectAsState()
+    val recognizedText by speechManager.recognizedText.collectAsState()
+    val isTTSSpeaking by speechManager.isSpeaking.collectAsState()
+
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            speechManager.startListening()
+        } else {
+            showPermissionDialog = true
+        }
+    }
+
+    // Handle speech state changes
+    LaunchedEffect(speechState) {
+        when (speechState) {
+            is SpeechState.Success -> {
+                val text = (speechState as SpeechState.Success).text
+                if (text.isNotBlank()) {
+                    // Add user message
+                    val userMessage = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = text,
+                        isFromUser = true,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    messages = messages + userMessage
+
+                    // Simulate bot response with TTS
+                    delay(1000)
+                    val botResponse = ChatMessage(
+                        id = UUID.randomUUID().toString(),
+                        text = "I heard you say: \"$text\". This is a demo AI response. How can I help you further?",
+                        isFromUser = false,
+                        timestamp = System.currentTimeMillis()
+                    )
+                    messages = messages + botResponse
+
+                    // Speak the bot response
+                    speechManager.speak(botResponse.text)
+                }
+            }
+            is SpeechState.Error -> {
+                val error = (speechState as SpeechState.Error).message
+                // Show error to user
+                val errorMessage = ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    text = "Error: $error. Please try again.",
+                    isFromUser = false,
+                    timestamp = System.currentTimeMillis()
+                )
+                messages = messages + errorMessage
+            }
+            else -> { /* Do nothing */ }
+        }
+    }
 
     // Add initial welcome message
     LaunchedEffect(Unit) {
-        messages = listOf(
-            ChatMessage(
-                id = "1",
-                text = "Hello! Welcome to ChatApp. How can I help you today?",
-                isFromUser = false,
-                timestamp = System.currentTimeMillis()
-            )
+        val welcomeMessage = ChatMessage(
+            id = "1",
+            text = "Hello! Welcome to Voice Chat. Press the microphone button and start speaking!",
+            isFromUser = false,
+            timestamp = System.currentTimeMillis()
         )
+        messages = listOf(welcomeMessage)
+
+        // Speak welcome message
+        delay(500)
+        speechManager.speak(welcomeMessage.text)
 
         // Sample chat histories
         chatHistories = listOf(
@@ -77,51 +194,56 @@ fun ChatScreenRoute(
         )
     }
 
+    // Cleanup on dispose
+    DisposableEffect(Unit) {
+        onDispose {
+            speechManager.cleanup()
+        }
+    }
+
+    // Permission dialog
+    if (showPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPermissionDialog = false },
+            icon = {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_mic),
+                    contentDescription = null,
+                    tint = Color.Red
+                )
+            },
+            title = { Text("Microphone Permission Required") },
+            text = { Text("This app needs microphone access to recognize your voice. Please grant the permission in your device settings.") },
+            confirmButton = {
+                TextButton(onClick = { showPermissionDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     ChatScreen(
         messages = messages,
-        messageText = messageText,
         chatHistories = chatHistories,
-        isListening = isListening,
-        onMessageTextChange = { messageText = it },
-        onSendMessage = {
-            if (messageText.isNotBlank()) {
-                val newMessage = ChatMessage(
-                    id = UUID.randomUUID().toString(),
-                    text = messageText,
-                    isFromUser = true,
-                    timestamp = System.currentTimeMillis()
-                )
-                messages = messages + newMessage
-                messageText = ""
-
-                // Simulate bot response
-                GlobalScope.launch {
-                    delay(1000)
-                    val botResponse = ChatMessage(
-                        id = UUID.randomUUID().toString(),
-                        text = "Thanks for your message! This is a demo response.",
-                        isFromUser = false,
-                        timestamp = System.currentTimeMillis()
-                    )
-                    messages = messages + botResponse
+        isListening = speechState is SpeechState.Listening || speechState is SpeechState.Speaking,
+        isSpeaking = isTTSSpeaking,
+        recognizedText = recognizedText,
+        speechState = speechState,
+        onVoiceInputClick = {
+            when (speechState) {
+                is SpeechState.Listening, is SpeechState.Speaking, is SpeechState.Processing -> {
+                    speechManager.cancelListening()
+                }
+                else -> {
+                    // Request microphone permission and start listening
+                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
             }
         },
-        onVoiceInputClick = {
-            // Toggle listening state
-            isListening = !isListening
-
-            if (isListening) {
-                // Simulate voice input
-                GlobalScope.launch {
-                    delay(2000)
-                    isListening = false
-                    messageText = "This is a voice input example"
-                }
-            }
+        onStopSpeaking = {
+            speechManager.stopSpeaking()
         },
         onHistoryClick = { history ->
-            // Load chat history
             println("Loading history: ${history.title}")
         },
         onDeleteHistory = { history ->
@@ -135,12 +257,13 @@ fun ChatScreenRoute(
 @Composable
 fun ChatScreen(
     messages: List<ChatMessage>,
-    messageText: String,
     chatHistories: List<ChatHistory>,
     isListening: Boolean,
-    onMessageTextChange: (String) -> Unit,
-    onSendMessage: () -> Unit,
+    isSpeaking: Boolean,
+    recognizedText: String,
+    speechState: SpeechState,
     onVoiceInputClick: () -> Unit,
+    onStopSpeaking: () -> Unit,
     onHistoryClick: (ChatHistory) -> Unit,
     onDeleteHistory: (ChatHistory) -> Unit,
     onBack: () -> Unit
@@ -148,14 +271,11 @@ fun ChatScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
     // Auto-scroll to bottom when new message arrives
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(messages.size - 1)
-            }
+            listState.animateScrollToItem(messages.size - 1)
         }
     }
 
@@ -189,7 +309,6 @@ fun ChatScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Start
                         ) {
-                            // Avatar
                             Surface(
                                 modifier = Modifier.size(40.dp),
                                 shape = CircleShape,
@@ -213,9 +332,9 @@ fun ChatScreen(
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Online",
+                                    text = if (isSpeaking) "Speaking..." else if (isListening) "Listening..." else "Online",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF4CAF50)
+                                    color = if (isSpeaking) Color(0xFFFF9800) else if (isListening) Color.Red else Color(0xFF4CAF50)
                                 )
                             }
                         }
@@ -237,12 +356,23 @@ fun ChatScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { /* TODO: Show menu */ }) {
-                            Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options"
-                            )
+                        // Stop speaking button
+                        if (isSpeaking) {
+                            IconButton(onClick = onStopSpeaking) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Stop speaking",
+                                    tint = Color.Red
+                                )
+                            }
                         }
+//
+//                        IconButton(onClick = { /* TODO: Show menu */ }) {
+//                            Icon(
+//                                imageVector = Icons.Default.MoreVert,
+//                                contentDescription = "More options"
+//                            )
+//                        }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.White,
@@ -251,64 +381,15 @@ fun ChatScreen(
                 )
             },
             bottomBar = {
-                Surface(
-                    shadowElevation = 8.dp,
-                    color = Color.White
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        // Voice Input Button
-                        FloatingActionButton(
-                            onClick = onVoiceInputClick,
-                            modifier = Modifier.size(56.dp),
-                            containerColor = if (isListening) Color.Red else Color(0xFF6A1B9A),
-                            contentColor = Color.White
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Phone,
-                                contentDescription = "Voice input",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Message Input
-                        CustomTextField(
-                            value = messageText,
-                            onValueChange = onMessageTextChange,
-                            label = "",
-                            placeholder = if (isListening) "Listening..." else "Type a message...",
-                            modifier = Modifier.weight(1f),
-                            keyboardType = KeyboardType.Text,
-                            singleLine = false,
-                            maxLines = 4,
-                            enabled = !isListening
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Send Button
-                        FloatingActionButton(
-                            onClick = onSendMessage,
-                            modifier = Modifier.size(56.dp),
-                            containerColor = Color.Blue,
-                            contentColor = Color.White
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send message"
-                            )
-                        }
-                    }
-                }
+                VoiceInputBottomBar(
+                    isListening = isListening,
+                    isSpeaking = isSpeaking,
+                    recognizedText = recognizedText,
+                    speechState = speechState,
+                    onVoiceInputClick = onVoiceInputClick
+                )
             }
         ) { paddingValues ->
-            // Messages List
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -316,33 +397,7 @@ fun ChatScreen(
                     .padding(paddingValues)
             ) {
                 if (messages.isEmpty()) {
-                    // Empty State
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "💬",
-                            fontSize = 64.sp
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "No messages yet",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Gray
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Start a conversation by sending a message or using voice input",
-                            fontSize = 14.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center
-                        )
-                    }
+                    EmptyMessagesState()
                 } else {
                     LazyColumn(
                         state = listState,
@@ -356,58 +411,12 @@ fun ChatScreen(
                     }
                 }
 
-                // Listening Indicator Overlay
+                // Listening Overlay
                 if (isListening) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.5f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Card(
-                            shape = RoundedCornerShape(24.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = Color.White
-                            ),
-                            elevation = CardDefaults.cardElevation(8.dp)
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Phone,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(64.dp),
-                                    tint = Color.Red
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                Text(
-                                    text = "Listening...",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF2C2C2C)
-                                )
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Text(
-                                    text = "Speak now",
-                                    fontSize = 14.sp,
-                                    color = Color.Gray
-                                )
-
-                                Spacer(modifier = Modifier.height(16.dp))
-
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(32.dp),
-                                    color = Color.Red
-                                )
-                            }
-                        }
-                    }
+                    ListeningOverlay(
+                        recognizedText = recognizedText,
+                        speechState = speechState
+                    )
                 }
             }
         }
@@ -415,14 +424,271 @@ fun ChatScreen(
 }
 
 @Composable
-fun ChatMessageItem(
-    message: ChatMessage
+fun VoiceInputBottomBar(
+    isListening: Boolean,
+    isSpeaking: Boolean,
+    recognizedText: String,
+    speechState: SpeechState,
+    onVoiceInputClick: () -> Unit
 ) {
+    Surface(
+        shadowElevation = 8.dp,
+        color = Color.White
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            // Status text
+            if (recognizedText.isNotEmpty() && !isListening) {
+                Text(
+                    text = "You said: \"$recognizedText\"",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+            }
+
+            // Voice button with animation
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedVoiceButton(
+                    isListening = isListening,
+                    isSpeaking = isSpeaking,
+                    onClick = onVoiceInputClick
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Instruction text
+            Text(
+                text = when {
+                    isSpeaking -> "AI is speaking..."
+                    isListening -> "Listening... Tap to stop"
+                    speechState is SpeechState.Processing -> "Processing your speech..."
+                    else -> "Tap the microphone to speak"
+                },
+                fontSize = 14.sp,
+                color = Color.Gray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@Composable
+fun AnimatedVoiceButton(
+    isListening: Boolean,
+    isSpeaking: Boolean,
+    onClick: () -> Unit
+) {
+    // Pulsing animation
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = if (isListening || isSpeaking) 1.2f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    FloatingActionButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(80.dp)
+            .scale(scale),
+        containerColor = when {
+            isSpeaking -> Color(0xFFFF9800)
+            isListening -> Color.Red
+            else -> Color(0xFF6A1B9A)
+        },
+        contentColor = Color.White
+    ) {
+        when {
+            isSpeaking -> Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Speaking",
+                modifier = Modifier.size(36.dp)
+            )
+            isListening -> Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Stop listening",
+                modifier = Modifier.size(36.dp)
+            )
+            else -> Icon(
+                painter = painterResource(id = R.drawable.ic_mic),
+                contentDescription = "Start voice input",
+                modifier = Modifier.size(36.dp)
+            )
+        }
+        /*
+        // Original code that doesn't compile due to mixed types
+        Icon(
+            // This is the problematic part mixing ImageVector and Int (DrawableRes)
+            // imageVector = when {
+            //     isSpeaking -> Icons.Default.Add
+            //     isListening -> Icons.Default.Close
+            //     else -> R.drawable.ic_mic // This is an Int, not an ImageVector
+            // },
+            contentDescription = when {
+                isSpeaking -> "Speaking"
+                isListening -> "Stop listening"
+                else -> "Start voice input"
+            },
+            modifier = Modifier.size(36.dp)
+        )
+        */
+    }
+}
+
+@Composable
+fun ListeningOverlay(
+    recognizedText: String,
+    speechState: SpeechState
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.7f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.White
+            ),
+            elevation = CardDefaults.cardElevation(8.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .padding(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Animated microphone icon
+                val infiniteTransition = rememberInfiniteTransition(label = "mic_pulse")
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.5f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800, easing = FastOutSlowInEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "alpha"
+                )
+
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_mic),
+                    contentDescription = null,
+                    modifier = Modifier.size(64.dp),
+                    tint = Color.Red.copy(alpha = alpha)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = when (speechState) {
+                        is SpeechState.Initializing -> "Initializing..."
+                        is SpeechState.Listening -> "Listening..."
+                        is SpeechState.Speaking -> "Listening..."
+                        is SpeechState.Processing -> "Processing..."
+                        else -> "Ready"
+                    },
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF2C2C2C)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Text(
+                    text = "Speak now",
+                    fontSize = 14.sp,
+                    color = Color.Gray
+                )
+
+                if (recognizedText.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Divider()
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "Recognized:",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = "\"$recognizedText\"",
+                        fontSize = 16.sp,
+                        color = Color(0xFF2C2C2C),
+                        textAlign = TextAlign.Center
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    color = Color.Red
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyMessagesState() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painterResource(id = R.drawable.ic_mic),
+            contentDescription = null,
+            modifier = Modifier.size(80.dp),
+            tint = Color.Gray.copy(alpha = 0.3f)
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Voice Chat Ready",
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Press the microphone button below and start speaking to chat with AI",
+            fontSize = 14.sp,
+            color = Color.Gray.copy(alpha = 0.7f),
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+@Composable
+fun ChatMessageItem(message: ChatMessage) {
     val alignment = if (message.isFromUser) Alignment.End else Alignment.Start
-    val backgroundColor = if (message.isFromUser)
-        Color.Blue
-    else
-        Color.White
+    val backgroundColor = if (message.isFromUser) Color.Blue else Color.White
     val textColor = if (message.isFromUser) Color.White else Color(0xFF2C2C2C)
 
     Column(
@@ -491,23 +757,18 @@ fun ChatScreenPreview() {
                 ),
                 ChatMessage(
                     id = "2",
-                    text = "Hi! I need some information about your services.",
+                    text = "I need some information about your services.",
                     isFromUser = true,
-                    timestamp = System.currentTimeMillis()
-                ),
-                ChatMessage(
-                    id = "3",
-                    text = "Of course! I'd be happy to help. What would you like to know?",
-                    isFromUser = false,
                     timestamp = System.currentTimeMillis()
                 )
             ),
-            messageText = "",
             chatHistories = emptyList(),
             isListening = false,
-            onMessageTextChange = {},
-            onSendMessage = {},
+            isSpeaking = false,
+            recognizedText = "",
+            speechState = SpeechState.Idle,
             onVoiceInputClick = {},
+            onStopSpeaking = {},
             onHistoryClick = {},
             onDeleteHistory = {},
             onBack = {}

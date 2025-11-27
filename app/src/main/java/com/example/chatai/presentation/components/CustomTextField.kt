@@ -64,7 +64,7 @@ fun CustomTextField(
                             painter = if (passwordVisible)
                                 painterResource(R.drawable.visibility)
                             else
-                                painterResource(R.drawable.visibility),
+                                painterResource(R.drawable.visibility_off),
                             contentDescription = if (passwordVisible) "Hide password" else "Show password",
                             tint = if (isError) MaterialTheme.colorScheme.error
                             else PurpleGrey80
