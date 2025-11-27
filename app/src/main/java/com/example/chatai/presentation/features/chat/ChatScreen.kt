@@ -130,7 +130,7 @@ fun ChatScreen(
 
                         Column {
                             Text(
-                                text = "Fintech Chat",
+                                text = "Fintech AI",
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold
                             )
